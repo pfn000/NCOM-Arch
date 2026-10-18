@@ -137,10 +137,10 @@ assets/
 docs/
   APP-MENU.md research and the recommended ••• app menu / settings
 tools/
-  gif-render/ the script that renders the GIFs (Python + Pillow + numpy + ffmpeg)
+  gif-render/ the scripts that render the GIFs and the hero banner (Python + Pillow + numpy + ffmpeg)
 ```
 
-To re-render a GIF, run `python3 tools/gif-render/scenes.py arc_close out.gif`. The scenes are `arc_close`, `pill_minimize`, `pill_maximize`, `pill_info`, `dots_menu`, `dots_settings`, `dots_move`, `dots_snap`, `resize` and `bubble`. You need the Inter font (`NCOM_FONT=/path/to/Inter.ttf`) and ffmpeg.
+To re-render a GIF, run `python3 tools/gif-render/scenes.py arc_close out.gif`. The scenes are `arc_close`, `pill_minimize`, `pill_maximize`, `pill_info`, `dots_menu`, `dots_settings`, `dots_move`, `dots_snap`, `resize` and `bubble`. To re-render the hero banner, run `python3 tools/gif-render/hero.py assets/brand/hero.gif assets/brand/hero.png`. You need the Inter font (`NCOM_FONT=/path/to/Inter.ttf`) and ffmpeg.
 
 ---
 

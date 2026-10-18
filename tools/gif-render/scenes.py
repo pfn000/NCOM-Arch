@@ -124,25 +124,36 @@ def pill_maximize(t):
     caption(fr,'Swipe pill up → MAXIMIZE')
     return fr,T
 
+def zoom_frame(fr,box,z):
+    """camera push-in: z=0 full frame, z=1 crops to box (1x px coords, 600x375 aspect) and fills the frame"""
+    if z<=0.001: return fr
+    x0,y0,x1,y1=[lerp(f,t,z) for f,t in zip((0,0,W,H),box)]
+    return fr.crop((int(x0*S),int(y0*S),int(x1*S),int(y1*S))).resize((CW,CH),Image.LANCZOS)
+
+PI_ZOOM=None
+def pill_info_zoom_box():
+    # Properties + quick settings region of the popover (anchor = pill corner), padded to the frame's 16:10 aspect
+    x1=G0[0]+G0[2]-8; x0=x1-246; y0=G0[1]+20
+    cx=(x0+x1)/2; cy=y0+136; h=178; w=h*W/H
+    return (cx-w/2,cy-h/2,cx+w/2,cy+h/2)
+
 def pill_info(t):
-    T=2.9; fr=base(); dock(fr)
+    # 0-1.2 tap pill, popover opens; 1.45-1.95 camera pushes in on Properties so size/path/toggles read on a phone;
+    # hold to 3.75; 3.75-4.25 back out; hold the open popover to the end
+    T=4.9; fr=base(); dock(fr)
     pl=geo_ctrl(G0)['pill']; start=(pl[0]+60,pl[1]+120); st={}; fing=None; pop=0
     if t<1.2:
         pos=move(start,pl,seg(t,0.15,0.6)); p=seg(t,0.62,0.72)*(1-seg(t,0.78,0.88))
         fing=dict(x=pos[0],y=pos[1],a=seg(t,0.1,0.35)*(1-seg(t,1.0,1.2)),p=p,ripple=seg(t,0.75,1.05) if t>0.75 else None)
         st.update(pill_on=0.62<t<0.95,pill_w=28+4*p); pop=seg(t,0.78,1.12)
-    elif t<2.9:
-        pop=1
-        if t>9:
-            tgt=(50,200); pos=move((tgt[0]+40,tgt[1]+70),tgt,seg(t,2.3,2.7)); p=seg(t,2.72,2.8)
-            fing=dict(x=pos[0],y=pos[1],a=seg(t,2.3,2.45),p=p)
     else:
-        pop=1-seg(t,2.95,3.2); tgt=(50,200)
-        fing=dict(x=tgt[0],y=tgt[1],p=1-seg(t,2.9,3.0),a=1-seg(t,3.0,3.3),ripple=seg(t,2.9,3.2) if t<3.2 else None)
+        pop=1
     st['pill_on']=st.get('pill_on') or pop>0.5
     render_window(fr,G0,st)
     popover(fr,G0[0]+G0[2]-8,G0[1]+20,pop)
     finger(fr,fing)
+    z=ease(seg(t,1.45,1.95))*(1-ease(seg(t,3.75,4.25)))
+    fr=zoom_frame(fr,pill_info_zoom_box(),z)
     caption(fr,'Tap pill → INFO / PROPERTIES')
     return fr,T
 
@@ -153,7 +164,9 @@ MENU_ROWS=[('chips',None),('sep',None),
  ('toggle','Keep on Top',''),('sub','Snap Layout',''),('sub','Glass',''),('sub','Move to Desktop',''),('sep',None),
  ('sub','Notifications',''),('sub','Appearance',''),('item','Reset App…',''),('sep',None),
  ('item','Hide Programming','⌘H'),('item','Quit Programming','⌘Q')]
-MW=198; RH=15; SEPH=6; CHH=24; MPAD=5
+MW=204; RH=14.5; SEPH=6; CHH=20; MPAD=5
+MENU_GAP=12   # menu top sits this far BELOW the ••• handle, so the handle is never covered (Saidie 5:31 PM Oct 14)
+def menu_top(g): return geo_ctrl(g)['dots'][1]+MENU_GAP
 def menu_layout(top):
     y=top+MPAD; out=[]
     for kind,*rest in MENU_ROWS:
@@ -169,7 +182,7 @@ def app_menu(frame,cx,top,p,hi_y=None,toggle_on=0.0):
     lay=Image.new('RGBA',(CW,CH),(0,0,0,0))
     glass_refract(lay,[x0*S,top*S,x1*S,bot*S],14*S,tint=0.72,blur=6,bend=12,band=16,shadow_s=0.22,backdrop=frame.convert('RGB'))
     ov=Image.new('RGBA',(CW,CH),(0,0,0,0)); d=ImageDraw.Draw(ov)
-    f=font(9.5,'Medium'); fs=font(8,'Medium'); fc=font(9,'SemiBold')
+    f=font(9.5,'SemiBold'); fs=font(8,'Medium'); fc=font(9,'SemiBold')
     if hi_y is not None:
         cands=[y+h/2 for kind,rest,y,h in rows if kind in ('item','sub','toggle')]
         hi_y=min(cands,key=lambda v:abs(v-hi_y))
@@ -177,15 +190,15 @@ def app_menu(frame,cx,top,p,hi_y=None,toggle_on=0.0):
     for kind,rest,y,h in rows:
         if kind=='sep':
             d.line([((x0+10)*S,(y+h/2)*S),((x1-10)*S,(y+h/2)*S)],fill=(120,126,136,110),width=max(1,S//2)); continue
-        if kind=='chips':
-            labels=['File','Edit','View']; cw=(MW-12-2*4)/3
+        if kind=='chips':   # program menus kept as a quiet secondary row; the settings groups below are the focus
+            labels=['File','Edit','View']; fcs=font(8,'Medium'); cw=(MW-12-2*4)/3
             for i,l in enumerate(labels):
                 bx=x0+6+i*(cw+4)
-                d.rounded_rectangle([bx*S,(y+3)*S,(bx+cw)*S,(y+h-3)*S],radius=8*S,fill=(255,255,255,120),outline=(255,255,255,190),width=S)
-                tw=fc.getlength(l)/S; d.text(((bx+cw/2-tw/2)*S,(y+6.5)*S),l,font=fc,fill=TXT)
+                d.rounded_rectangle([bx*S,(y+3)*S,(bx+cw)*S,(y+h-3)*S],radius=7*S,fill=(255,255,255,40),outline=(150,156,166,90),width=max(1,S//2))
+                tw=fcs.getlength(l)/S; d.text(((bx+cw/2-tw/2)*S,(y+5)*S),l,font=fcs,fill=TXT2)
             continue
         label,sc_=rest[0],rest[1]
-        ty=y+(h-11)/2
+        ty=y+(h-11.5)/2
         d.text(((x0+14)*S,ty*S),label,font=f,fill=TXT)
         if kind=='item' and sc_:
             tw=fs.getlength(sc_)/S; d.text(((x1-12-tw)*S,(ty+1)*S),sc_,font=fs,fill=TXT2)
@@ -202,7 +215,7 @@ def app_menu(frame,cx,top,p,hi_y=None,toggle_on=0.0):
 def dots_menu(t):
     T=3.5; fr=base(); dock(fr)
     dt=geo_ctrl(GM)['dots']; start=(dt[0]+40,dt[1]+140); st={}; fing=None; mp=0; hi=None; tog=0
-    top=GM[1]+15
+    top=menu_top(GM)
     yS=menu_row_y('Settings…',top); yG=menu_row_y('Glass',top); yK=menu_row_y('Keep on Top',top); mx=dt[0]-30
     if t<1.1:
         pos=move(start,dt,seg(t,0.15,0.6)); p=seg(t,0.62,0.72)*(1-seg(t,0.78,0.88))
@@ -223,7 +236,7 @@ def dots_menu(t):
     else:
         mp=1; tog=1; hi=yK
         fing=dict(x=mx,y=yK,p=0,a=1-seg(t,2.6,2.85))
-    st['dots_alpha']=1-clamp(mp*1.6)
+    if mp>0.05: st.update(dots_on=True,dots_held=True)   # ••• stays visible, shown as the active control
     render_window(fr,GM,st)
     app_menu(fr,dt[0],top,mp,hi_y=hi,toggle_on=tog)
     finger(fr,fing)
@@ -278,7 +291,7 @@ def settings_toggle_x(g): return g[0]+g[2]-14-14-12
 def dots_settings(t):
     T=3.7; fr=base(); dock(fr)
     dt=geo_ctrl(GM)['dots']; start=(dt[0]+40,dt[1]+140); st={}; fing=None; mp=0; hi=None; sp_=0; tog=0
-    top=GM[1]+15; yS=menu_row_y('Settings…',top); mx=dt[0]-30
+    top=menu_top(GM); yS=menu_row_y('Settings…',top); mx=dt[0]-30
     if t<1.0:
         pos=move(start,dt,seg(t,0.15,0.55)); p=seg(t,0.55,0.63)*(1-seg(t,0.68,0.76))
         fing=dict(x=pos[0],y=pos[1],a=seg(t,0.1,0.3),p=p,ripple=seg(t,0.66,0.95) if t>0.66 else None)
@@ -293,7 +306,8 @@ def dots_settings(t):
         pos=move((mx,yS),(tx,ty),seg(t,2.25,2.7)); pr=seg(t,2.72,2.8)*(1-seg(t,2.84,2.92))
         fing=dict(x=pos[0],y=pos[1],p=pr,a=1-seg(t,3.05,3.3),ripple=seg(t,2.8,3.05) if 2.8<t<3.05 else None)
         tog=ease(seg(t,2.8,2.95))
-    st['dots_alpha']=1-clamp(max(mp,sp_)*1.6); st['content_alpha']=1-0.85*sp_
+    if max(mp,sp_)>0.05: st.update(dots_on=True,dots_held=mp>0.05)
+    st['content_alpha']=1-0.85*sp_
     render_window(fr,GM,st)
     settings_sheet(fr,GM,sp_,tog=tog)
     app_menu(fr,dt[0],top,mp,hi_y=hi)
@@ -448,7 +462,7 @@ if __name__=='__main__':
         ims=[fn(t)[0].convert('RGB').resize((W,H),Image.LANCZOS) for t in ts]
         sheet=Image.new('RGB',(W*len(ims),H)); [sheet.paste(im,(i*W,0)) for i,im in enumerate(ims)]
         sheet.save(out,quality=88); sys.exit(0)
-    TT=min(T,4.0); n=int(round(TT*FPS)); frames=[]
+    TT=min(T,{'pill_info':5.0}.get(name,4.0)); n=int(round(TT*FPS)); frames=[]   # 04 keeps real time for its zoom beat
     for i in range(n):
         frames.append(fn(i/FPS*T/TT)[0].convert('RGB').resize((W,H),Image.LANCZOS))
     save_gif(frames,out)

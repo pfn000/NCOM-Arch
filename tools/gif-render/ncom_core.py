@@ -298,7 +298,7 @@ def popover(frame,anchor_r,anchor_y,p):
     """pill tap: glass INFO / PROPERTIES panel under the corner (Saidie 5:50 PM Oct 14 spec + 4:16 PM Oct 18:
     hero banner, then properties like file size and file path, then settings)"""
     if p<=0.01: return
-    w,h=232,252; k=lerp(0.55,1,eout(p)); a=clamp(p*1.8)
+    w,h=246,252; k=lerp(0.55,1,eout(p)); a=clamp(p*1.8)
     x1=anchor_r; x0=x1-w; y0=anchor_y
     lay=Image.new('RGBA',(CW,CH),(0,0,0,0))
     glass_refract(lay,[x0*S,y0*S,x1*S,(y0+h)*S],20*S,tint=0.74,blur=6,bend=14,band=20,shadow_s=0.22,backdrop=frame.convert('RGB'))
@@ -321,23 +321,23 @@ def popover(frame,anchor_r,anchor_y,p):
     d.text(((lx+26)*S,(y0+67)*S),'Plan.ncom',font=font(10.5,'SemiBold'),fill=TXT)
     d.text(((lx+26)*S,(y0+81)*S),'Programming · v1.2',font=font(8,'Medium'),fill=TXT2)
     d.line([(lx*S,(y0+97)*S),(rx*S,(y0+97)*S)],fill=(120,126,136,100),width=max(1,S//2))
-    fl=font(8,'Medium'); fv=font(8,'SemiBold')
+    fl=font(9,'Medium'); fv=font(9,'SemiBold')   # larger so it reads on a 390 px phone (checker, Oct 18)
     rows=[('Size','2.4 MB (2,516,582 bytes)'),('Type','NCOM document'),('Created','Oct 14, 2026, 5:50 PM'),('Modified','Today, 4:16 PM')]
     for i,(lb,v) in enumerate(rows):
-        yy=y0+102+i*13
+        yy=y0+102+i*14
         d.text((lx*S,yy*S),lb,font=fl,fill=TXT2); tw=fv.getlength(v)/S; d.text(((rx-tw)*S,yy*S),v,font=fv,fill=TXT)
-    yy=y0+102+4*13
+    yy=y0+102+4*14
     d.text((lx*S,yy*S),'Path',font=fl,fill=TXT2)
-    d.text((lx*S,(yy+11)*S),'C:\\Users\\Saidie\\Documents\\Plan.ncom',font=fv,fill=TXT)
+    d.text((lx*S,(yy+12)*S),'C:\\Users\\Saidie\\Documents\\Plan.ncom',font=fv,fill=TXT)
     d.line([(lx*S,(y0+183)*S),(rx*S,(y0+183)*S)],fill=(120,126,136,100),width=max(1,S//2))
     # quick settings
-    d.text((lx*S,(y0+188)*S),'Settings',font=font(8,'SemiBold'),fill=TXT2)
+    d.text((lx*S,(y0+188)*S),'Settings',font=font(9,'SemiBold'),fill=TXT2)
     def mini(x,label,on):
         tyc=y0+208; tx0=x; tx1=x+18
         d.rounded_rectangle([tx0*S,(tyc-5)*S,tx1*S,(tyc+5)*S],radius=5*S,fill=((40,46,56) if on else (196,200,206))+(255,))
         kx=tx1-5 if on else tx0+5; d.ellipse([(kx-3.8)*S,(tyc-3.8)*S,(kx+3.8)*S,(tyc+3.8)*S],fill=(255,255,255,255))
-        d.text(((tx1+4)*S,(tyc-5.5)*S),label,font=font(8,'Medium'),fill=TXT)
-    mini(lx,'On top',False); mini(lx+70,'Glass',True); mini(lx+136,'Notify',True)
+        d.text(((tx1+4)*S,(tyc-6)*S),label,font=font(9,'Medium'),fill=TXT)
+    mini(lx,'On top',False); mini(lx+76,'Glass',True); mini(lx+146,'Notify',True)
     oy=y0+222
     d.rounded_rectangle([(x0+8)*S,oy*S,(x1-8)*S,(oy+22)*S],radius=9*S,fill=(255,255,255,170),outline=(255,255,255,210),width=S)
     d.text(((x0+18)*S,(oy+5.5)*S),'Open settings…',font=font(9.5,'Medium'),fill=TXT)
