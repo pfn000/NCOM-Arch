@@ -72,6 +72,75 @@ def glass(frame,box,r,tint=0.62,blur=14,edge=True,shadow_s=0.22,shadow_blur=18,s
         d.rounded_rectangle([box[0]+S,box[1]+S,box[2]-S,box[3]-S],radius=max(1,r-S),outline=(255,255,255,190),width=S)
         frame.alpha_composite(e)
 
+# ---------- refractive glass (menus / popovers) ----------
+def _rr_sdf(h,w,box,r):
+    """signed distance (px) to a rounded rect, negative inside; arrays sized (h,w) in crop coords"""
+    x0,y0,x1,y1=box
+    ys,xs=np.mgrid[0:h,0:w].astype(np.float32); xs+=0.5; ys+=0.5
+    cx,cy=(x0+x1)/2,(y0+y1)/2; hx,hy=(x1-x0)/2,(y1-y0)/2
+    r=min(r,hx,hy)
+    qx=np.abs(xs-cx)-(hx-r); qy=np.abs(ys-cy)-(hy-r)
+    out=np.sqrt(np.maximum(qx,0)**2+np.maximum(qy,0)**2)
+    ins=np.minimum(np.maximum(qx,qy),0)
+    return out+ins-r
+
+def _bilinear(img,sx,sy):
+    h,w=img.shape[:2]
+    sx=np.clip(sx,0,w-1.001); sy=np.clip(sy,0,h-1.001)
+    x0=sx.astype(np.int32); y0=sy.astype(np.int32); fx=(sx-x0)[...,None]; fy=(sy-y0)[...,None]
+    a=img[y0,x0]; b=img[y0,x0+1]; c=img[y0+1,x0]; d=img[y0+1,x0+1]
+    return (a*(1-fx)+b*fx)*(1-fy)+(c*(1-fx)+d*fx)*fy
+
+def glass_refract(frame,box,r,tint=0.40,blur=2.5,bend=11,band=16,chroma=0.16,shadow_s=0.22,shadow_blur=18,shadow_dy=12,backdrop=None):
+    """Refractive glass panel: the backdrop is displaced through a lens-shaped
+    displacement map (strongest at the rounded edge, zero in the flat middle),
+    with a chromatic split at the edge, a light blur, a bright specular rim on the
+    top edge and a soft inner shadow on the bottom edge. Units: 1x px (scaled by S)."""
+    box=[int(round(v)) for v in box]
+    if box[2]-box[0]<4 or box[3]-box[1]<4: return
+    if shadow_s>0: shadow(frame,box,r,shadow_s,shadow_blur,shadow_dy)
+    src=backdrop if backdrop is not None else frame.convert('RGB')
+    pad=int((bend+blur*3+4)*S)
+    cx0,cy0=max(0,box[0]-pad),max(0,box[1]-pad); cx1,cy1=min(CW,box[2]+pad),min(CH,box[3]+pad)
+    if cx1<=cx0 or cy1<=cy0: return
+    crop=src.crop((cx0,cy0,cx1,cy1))
+    if blur>0: crop=crop.filter(ImageFilter.GaussianBlur(blur*S))
+    img=np.asarray(crop,dtype=np.float32)
+    h,w=img.shape[:2]
+    lb=[box[0]-cx0,box[1]-cy0,box[2]-cx0,box[3]-cy0]
+    sd=_rr_sdf(h,w,lb,r)
+    gy,gx=np.gradient(sd)                      # outward normal
+    gn=np.sqrt(gx*gx+gy*gy)+1e-6; nx,ny=gx/gn,gy/gn
+    t=np.clip(-sd,0,None)/(band*S)             # 0 at edge -> 1 at band depth
+    m=(1-np.clip(t,0,1)); m=m*m*(3-2*m)        # smooth lens profile, strongest at edge
+    disp=bend*S*m
+    ys,xs=np.mgrid[0:h,0:w].astype(np.float32)
+    out=np.empty_like(img)
+    # sample outward along the normal: background beyond the rim bends into the panel
+    for ch,k in ((0,1+chroma),(1,1.0),(2,1-chroma)):
+        out[...,ch]=_bilinear(img[...,ch:ch+1],xs+nx*disp*k,ys+ny*disp*k)[...,0]
+    # tint (a touch lighter at the edge, like thicker glass catching light)
+    tw=tint+0.10*m
+    out=out*(1-tw[...,None])+np.array([250,251,252],np.float32)*tw[...,None]
+    inside=np.clip(-sd,0,None)
+    # specular rim on the top edge
+    top=np.clip(-ny,0,1)**1.6
+    rim=np.exp(-(inside/(0.9*S))**2)*top
+    glow=np.exp(-inside/(7*S))*top*0.22
+    spec=np.clip(rim*0.95+glow,0,1)[...,None]
+    out=out*(1-spec)+255*spec
+    # soft inner shadow on the bottom edge
+    bot=np.clip(ny,0,1)**1.4
+    sh=(np.exp(-inside/(4.5*S))*0.24+np.exp(-(inside/(0.8*S))**2)*0.18)*bot
+    out=out*(1-sh[...,None])+np.array([40,46,56],np.float32)*sh[...,None]
+    alpha=np.clip(0.5-sd,0,1)*255             # anti-aliased panel mask
+    rgba=np.dstack([np.clip(out,0,255),alpha]).astype(np.uint8)
+    layer=Image.new('RGBA',(CW,CH),(0,0,0,0)); layer.paste(Image.fromarray(rgba,'RGBA'),(cx0,cy0))
+    frame.alpha_composite(layer)
+    e=Image.new('RGBA',(CW,CH),(0,0,0,0)); d=ImageDraw.Draw(e)
+    d.rounded_rectangle(box,radius=r,outline=(140,146,156,120),width=S)
+    frame.alpha_composite(e)
+
 # ---------- window ----------
 def draw_arc(d,cx,cy,col,thick=6,r=17,a0=270,a1=360,alpha=255):
     t=thick*S; rr=r*S; n=40
@@ -136,26 +205,44 @@ def window_layer(frame,g,st):
             draw_arc(d,X+Wd-24*S,Y+Ht-24*S,ACT if st.get('handle_on') else CTRL,a0=0,a1=90,alpha=int(255*ha))
     frame.alpha_composite(lay)
 
+_TRAIL=[]
 def finger(frame,f):
-    if not f or f.get('a',1)<=0.01: return
+    """touch dot + a short fading trail while the finger is down and moving"""
+    global _TRAIL
+    if not f or f.get('a',1)<=0.01:
+        _TRAIL=[]; return
     x,y=f['x']*S,f['y']*S; a=f.get('a',1); p=f.get('p',0)
+    if _TRAIL and math.hypot(x-_TRAIL[-1][0],y-_TRAIL[-1][1])>90*S: _TRAIL=[]
+    _TRAIL.append((x,y,p)); _TRAIL=_TRAIL[-7:]
     lay=Image.new('RGBA',(CW,CH),(0,0,0,0)); d=ImageDraw.Draw(lay)
+    n=len(_TRAIL)
+    for i in range(n-1):
+        (x0,y0,p0),(x1,y1,p1)=_TRAIL[i],_TRAIL[i+1]
+        touch=min(p0,p1)
+        if touch<0.5 or math.hypot(x1-x0,y1-y0)<0.6*S: continue
+        k=(i+1)/n
+        d.line([(x0,y0),(x1,y1)],fill=(40,46,56,int(a*touch*150*k)),width=int((3+6*k)*S))
     r=(15-3*p)*S
-    d.ellipse([x-r,y-r,x+r,y+r],fill=(30,34,42,int(a*(34+40*p))),outline=(255,255,255,int(a*210)),width=int(2*S))
+    d.ellipse([x-r,y-r,x+r,y+r],fill=(30,34,42,int(a*(40+50*p))),outline=(255,255,255,int(a*220)),width=int(2*S))
     if f.get('ripple') is not None:
         q=f['ripple']; rr=(14+22*q)*S
         d.ellipse([x-rr,y-rr,x+rr,y+rr],outline=(30,34,42,int(a*160*(1-q))),width=int(2*S))
     frame.alpha_composite(lay)
 
 def caption(frame,text,sub=None):
-    f=font(12,'SemiBold'); tw=f.getlength(text)
+    """caption bar: gesture in medium weight, the RESULT word in bold"""
+    if '→' in text: left,res=[s.strip() for s in text.split('→',1)]; left=left+'  →  '
+    else: left,res=text,''
+    f=font(13,'Medium'); fb=font(13,'Bold')
+    lw=f.getlength(left); rw=fb.getlength(res); tw=lw+rw
     f2=font(10,'Medium'); sw=f2.getlength(sub) if sub else 0
-    w=max(tw,sw)+28*S; h=(26 if not sub else 40)*S
-    x0=(CW-w)/2; y0=12*S
-    glass(frame,[x0,y0,x0+w,y0+h],h/2 if not sub else 14*S,tint=0.7,shadow_s=0.12,shadow_blur=10,shadow_dy=4)
-    d=ImageDraw.Draw(frame)
-    d.text(((CW-tw)/2,y0+6*S),text,font=f,fill=TXT)
-    if sub: d.text(((CW-sw)/2,y0+22*S),sub,font=f2,fill=TXT2)
+    w=max(tw,sw)+32*S; h=(28 if not sub else 42)*S
+    x0=(CW-w)/2; y0=10*S
+    glass(frame,[x0,y0,x0+w,y0+h],h/2 if not sub else 15*S,tint=0.74,shadow_s=0.14,shadow_blur=10,shadow_dy=4)
+    d=ImageDraw.Draw(frame); tx=(CW-tw)/2
+    d.text((tx,y0+6*S),left,font=f,fill=TXT2)
+    d.text((tx+lw,y0+6*S),res,font=fb,fill=TXT)
+    if sub: d.text(((CW-sw)/2,y0+24*S),sub,font=f2,fill=TXT2)
 
 def dock(frame,hi=None,chip=None):
     w=150; x0=(W-w)/2; y0=H-42
@@ -208,32 +295,53 @@ def symbol():
     return SYMBOL
 
 def popover(frame,anchor_r,anchor_y,p):
-    """info popover under the window's top-right corner; p 0..1 grow"""
+    """pill tap: glass INFO / PROPERTIES panel under the corner (Saidie 5:50 PM Oct 14 spec + 4:16 PM Oct 18:
+    hero banner, then properties like file size and file path, then settings)"""
     if p<=0.01: return
-    w,h=210,196; k=lerp(0.55,1,eout(p)); a=clamp(p*1.8)
+    w,h=232,252; k=lerp(0.55,1,eout(p)); a=clamp(p*1.8)
     x1=anchor_r; x0=x1-w; y0=anchor_y
     lay=Image.new('RGBA',(CW,CH),(0,0,0,0))
-    glass(lay,[x0*S,y0*S,x1*S,(y0+h)*S],20*S,tint=0.62,shadow_s=0.22,backdrop=frame.convert('RGB'))
+    glass_refract(lay,[x0*S,y0*S,x1*S,(y0+h)*S],20*S,tint=0.74,blur=6,bend=14,band=20,shadow_s=0.22,backdrop=frame.convert('RGB'))
     cl=Image.new('RGBA',(CW,CH),(0,0,0,0)); d=ImageDraw.Draw(cl)
-    bx0,by0,bx1,by1=int((x0+8)*S),int((y0+8)*S),int((x1-8)*S),int((y0+78)*S)
+    # hero banner
+    bx0,by0,bx1,by1=int((x0+8)*S),int((y0+8)*S),int((x1-8)*S),int((y0+60)*S)
     gw,gh=bx1-bx0,by1-by0
     gn=np.linspace(0,1,gw)[None,:,None]; gv=np.linspace(0,1,gh)[:,None,None]
     col=(np.array([92,98,108])*(1-gn)+np.array([170,176,185])*gn)*(1-0.22*gv)
     gl=Image.fromarray(np.ascontiguousarray(np.broadcast_to(col,(gh,gw,3))).astype(np.uint8)).convert('RGBA')
-    sym=symbol().copy(); sym.thumbnail((int(70*S),int(44*S)),Image.LANCZOS)
+    sym=symbol().copy(); sym.thumbnail((int(62*S),int(36*S)),Image.LANCZOS)
     r_,g_,b_,a_=sym.split(); L=Image.merge('RGB',(r_,g_,b_)).convert('L').point(lambda v:int(205+v*0.19))
     gl.alpha_composite(Image.merge('RGBA',(L,L,L,a_)),(int(gw-sym.size[0]-12*S),int((gh-sym.size[1])/2)))
-    ImageDraw.Draw(gl).text((10*S,gh-24*S),'Programming',font=font(13,'SemiBold'),fill=(250,251,252,255))
+    ImageDraw.Draw(gl).text((10*S,gh-22*S),'Programming',font=font(12.5,'SemiBold'),fill=(250,251,252,255))
     gl.putalpha(ImageChops.multiply(gl.getchannel('A'),rr_mask(gl.size,[0,0,gw-1,gh-1],13*S)))
     lay.alpha_composite(gl,(bx0,by0))
-    d.text(((x0+12)*S,(y0+86)*S),'About',font=font(10.5,'SemiBold'),fill=TXT)
-    d.text(((x0+12)*S,(y0+101)*S),'Programming · v1.2 · NCOM Systems',font=font(8.5,'Medium'),fill=TXT2)
-    d.rounded_rectangle([(x0+12)*S,(y0+116)*S,(x1-40)*S,(y0+120)*S],radius=2*S,fill=SKEL)
-    for i,lbl in enumerate(['Option 1','Option 2']):
-        oy=y0+130+i*30
-        d.rounded_rectangle([(x0+8)*S,oy*S,(x1-8)*S,(oy+26)*S],radius=10*S,fill=(255,255,255,140),outline=(255,255,255,200),width=S)
-        d.text(((x0+18)*S,(oy+7)*S),lbl,font=font(10,'Medium'),fill=TXT)
-        d.text(((x1-22)*S,(oy+4)*S),'›',font=font(12,'Medium'),fill=TXT2)
+    # document
+    lx=x0+14; rx=x1-14
+    d.rounded_rectangle([lx*S,(y0+68)*S,(lx+18)*S,(y0+90)*S],radius=4*S,fill=(120,126,136,255))
+    d.text(((lx+26)*S,(y0+67)*S),'Plan.ncom',font=font(10.5,'SemiBold'),fill=TXT)
+    d.text(((lx+26)*S,(y0+81)*S),'Programming · v1.2',font=font(8,'Medium'),fill=TXT2)
+    d.line([(lx*S,(y0+97)*S),(rx*S,(y0+97)*S)],fill=(120,126,136,100),width=max(1,S//2))
+    fl=font(8,'Medium'); fv=font(8,'SemiBold')
+    rows=[('Size','2.4 MB (2,516,582 bytes)'),('Type','NCOM document'),('Created','Oct 14, 2026, 5:50 PM'),('Modified','Today, 4:16 PM')]
+    for i,(lb,v) in enumerate(rows):
+        yy=y0+102+i*13
+        d.text((lx*S,yy*S),lb,font=fl,fill=TXT2); tw=fv.getlength(v)/S; d.text(((rx-tw)*S,yy*S),v,font=fv,fill=TXT)
+    yy=y0+102+4*13
+    d.text((lx*S,yy*S),'Path',font=fl,fill=TXT2)
+    d.text((lx*S,(yy+11)*S),'C:\\Users\\Saidie\\Documents\\Plan.ncom',font=fv,fill=TXT)
+    d.line([(lx*S,(y0+183)*S),(rx*S,(y0+183)*S)],fill=(120,126,136,100),width=max(1,S//2))
+    # quick settings
+    d.text((lx*S,(y0+188)*S),'Settings',font=font(8,'SemiBold'),fill=TXT2)
+    def mini(x,label,on):
+        tyc=y0+208; tx0=x; tx1=x+18
+        d.rounded_rectangle([tx0*S,(tyc-5)*S,tx1*S,(tyc+5)*S],radius=5*S,fill=((40,46,56) if on else (196,200,206))+(255,))
+        kx=tx1-5 if on else tx0+5; d.ellipse([(kx-3.8)*S,(tyc-3.8)*S,(kx+3.8)*S,(tyc+3.8)*S],fill=(255,255,255,255))
+        d.text(((tx1+4)*S,(tyc-5.5)*S),label,font=font(8,'Medium'),fill=TXT)
+    mini(lx,'On top',False); mini(lx+70,'Glass',True); mini(lx+136,'Notify',True)
+    oy=y0+222
+    d.rounded_rectangle([(x0+8)*S,oy*S,(x1-8)*S,(oy+22)*S],radius=9*S,fill=(255,255,255,170),outline=(255,255,255,210),width=S)
+    d.text(((x0+18)*S,(oy+5.5)*S),'Open settings…',font=font(9.5,'Medium'),fill=TXT)
+    d.text(((x1-22)*S,(oy+3)*S),'›',font=font(12,'Medium'),fill=TXT2)
     lay.alpha_composite(cl)
     frame.alpha_composite(scale_layer(lay,k,x1,y0,alpha=a))
 
@@ -243,7 +351,7 @@ def menubar(frame,cx,cy,p,sel=None,drop=0):
     full=sum(f.getlength(t) for t in items)/S+3*24+12
     w=lerp(40,full,eout(p)); h=22
     x0=cx-w/2; y0=cy-h/2
-    glass(frame,[x0*S,y0*S,(x0+w)*S,(y0+h)*S],11*S,tint=0.62,shadow_s=0.16,shadow_blur=10,shadow_dy=4)
+    glass_refract(frame,[x0*S,y0*S,(x0+w)*S,(y0+h)*S],11*S,tint=0.40,bend=7,band=9,shadow_s=0.16,shadow_blur=10,shadow_dy=4)
     ov=Image.new('RGBA',(CW,CH),(0,0,0,0)); d=ImageDraw.Draw(ov); ta=clamp((p-0.45)/0.55)
     xx=cx-full/2+6+12; pos={}
     for t in items:
@@ -256,7 +364,7 @@ def menubar(frame,cx,cy,p,sel=None,drop=0):
         sx,_=pos[sel]; dw,dh=128,4*24+10; dx0=sx-8; dy0=y0+h+6
         k=eout(drop)
         sub=Image.new('RGBA',(CW,CH),(0,0,0,0))
-        glass(sub,[dx0*S,dy0*S,(dx0+dw)*S,(dy0+dh*k)*S],14*S,tint=0.62,shadow_s=0.2,backdrop=frame.convert('RGB'))
+        glass_refract(sub,[dx0*S,dy0*S,(dx0+dw)*S,(dy0+dh*k)*S],14*S,tint=0.62,blur=4,bend=12,band=16,shadow_s=0.2,backdrop=frame.convert('RGB'))
         ds=ImageDraw.Draw(sub)
         for i,t in enumerate(['New','Open…','Save','Export']):
             ty=dy0+7+i*24
