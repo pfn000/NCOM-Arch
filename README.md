@@ -153,7 +153,7 @@ The window system above, as real code. One Rust core holds the rules (anatomy, g
 | **C# CLI** | `dotnet/src/NcomArch.Ctl` | `ncomctl`: send requests to the shell, or run the core in-process (`ncomctl --inproc demo`). |
 | **Kernel driver** | `windows/driver/NcomArchKm` | `NcomArchKm.sys`, a KMDF driver with an INF. A root-enumerated input broker that passes pointer samples to the shell (see [its README](windows/driver/README.md)). |
 | **Python** | `python/` | The `ncom-arch` package: the spec in pure Python, `ctypes` bindings to the core, an IPC client, the GIF and hero renderer (it was `tools/gif-render`), and the `ncom-arch` CLI. |
-| **CI** | `.github/workflows/ci.yml` | Ubuntu: Rust tests and build, then Python tests against the real `.so`. windows-latest: the DLL, the .NET tests and smoke tests, and the driver build with test signing. Every job uploads its build. |
+| **CI** | `.github/workflows/ci.yml` | Ubuntu: Rust tests and build, then Python tests against the real `.so`. windows-latest: the DLL, the .NET tests and smoke tests. The driver builds twice: on windows-latest with the WDK from NuGet, and on windows-2022 with the installed WDK. Both runs check the INF with InfVerif and test-sign the driver. Every job uploads its build. |
 
 ### Build it
 
@@ -199,7 +199,7 @@ Other commands: `hello`, `configure`, `close`, `minimize`, `maximize`, `restore`
 - The Python package: tests, wheel, and the GIF and hero renderer.
 
 **Builds, but not proven on a real machine yet**
-- `NcomArchKm.sys` compiles with the WDK, gets its INF stamped and its catalog made, and is **test-signed** with a throwaway certificate. It has not been loaded on a PC yet. Its inputs come from user mode for now; reading the touchpad itself needs a HID filter driver, which isn't written.
+- `NcomArchKm.sys` compiles with the WDK at `/W4 /WX`. Its INF gets stamped and passes InfVerif, its catalog gets made, and the driver is **test-signed** with a throwaway certificate. It has not been loaded on a PC yet. Its inputs come from user mode for now; reading the touchpad itself needs a HID filter driver, which isn't written.
 - **Production signing needs Saidie's EV code-signing certificate and Microsoft attestation signing (Partner Center).** A test-signed driver only loads with `bcdedit /set testsigning on`.
 
 **Not built yet**

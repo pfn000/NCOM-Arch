@@ -12,7 +12,7 @@ Samples wait in a 256-entry ring; the oldest is dropped when it is full.
 
 ## Status, honestly
 
-- **Skeleton.** It compiles with the WDK (`/W4 /WX`), stampinf fills the INF, Inf2Cat makes the catalog and CI test-signs `.sys` + `.cat` with a throwaway self-signed certificate. It has **not** been loaded on a real machine yet.
+- **Skeleton.** It compiles with the WDK (`/W4 /WX`). CI builds it twice: on windows-latest (Visual Studio 18, WDK 10.0.28000 from NuGet) and on windows-2022 (installed WDK 10.0.26100). stampinf fills the INF and `infverif /w` passes it. Inf2Cat makes the catalog, and CI test-signs the `.sys` and `.cat` with a throwaway self-signed certificate. The NuGet run skips the WDK's ApiValidator step, because its x86 tool won't start on that runner. It has **not** been loaded on a real machine yet.
 - Samples come from user mode today. Reading the touchpad/touchscreen directly needs a HID (precision touchpad) **filter** driver underneath. That is the next kernel piece and isn't written.
 
 ## Build
