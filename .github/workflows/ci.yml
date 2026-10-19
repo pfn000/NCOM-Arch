@@ -191,6 +191,10 @@ jobs:
           }
           Get-ChildItem $pk -Recurse -Filter "Microsoft.DriverKit.Build.Tasks*.dll" | ForEach-Object { $_.FullName.Substring($pk.Length) }
           Get-ChildItem $pk -Directory | ForEach-Object { $_.Name; Get-ChildItem "$($_.FullName)\build" -Recurse -Include *.props,*.targets -ErrorAction SilentlyContinue | ForEach-Object { "   " + $_.FullName.Substring($pk.Length) } }
+          # put the WDK's own tools (stampinf, inf2cat, infverif, signtool) on PATH
+          $tools = Get-ChildItem $pk -Recurse -Include stampinf.exe, inf2cat.exe, infverif.exe, signtool.exe | Where-Object { $_.DirectoryName -notmatch '\\(x86|arm64|arm)$' }
+          $tools | ForEach-Object { $_.FullName.Substring($pk.Length) }
+          $tools | ForEach-Object { $_.DirectoryName } | Sort-Object -Unique | Out-File -Append $env:GITHUB_PATH
           "WDK_ARGS=/p:NcomWdkPackages=$pk /p:WindowsTargetPlatformVersion=10.0.28000.0" | Out-File -Append $env:GITHUB_ENV
       - name: Build NcomArchKm.sys
         shell: pwsh
@@ -230,6 +234,15 @@ jobs:
           "@ | Out-File "$pkg\TEST-SIGNED-README.txt" -Encoding utf8
           Get-AuthenticodeSignature "$pkg\NcomArchKm.sys" | Format-List SignerCertificate, Status
           Get-ChildItem $pkg | Select-Object Name, Length | Format-Table -AutoSize
+      - name: InfVerif (Windows Driver INF rules)
+        shell: pwsh
+        run: |
+          $roots = @("${env:ProgramFiles(x86)}\Windows Kits\10", "$env:RUNNER_TEMP\wdk") | Where-Object { Test-Path $_ }
+          $iv = Get-ChildItem $roots -Recurse -Filter infverif.exe -ErrorAction SilentlyContinue | Where-Object { $_.DirectoryName -match 'x64' } | Select-Object -First 1
+          if (-not $iv) { "infverif.exe not found on this runner; skipped"; exit 0 }
+          $iv.FullName
+          & $iv.FullName /w /v out\driver\NcomArchKm.inf
+          if ($LASTEXITCODE) { throw "InfVerif reported errors" }
       - uses: actions/upload-artifact@v4
         with:
           name: ncom-arch-driver-x64-testsigned-${{ matrix.os }}
