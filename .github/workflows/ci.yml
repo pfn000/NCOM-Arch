@@ -183,10 +183,15 @@ jobs:
         shell: pwsh
         run: |
           $pk = "$env:RUNNER_TEMP\wdk"
-          nuget install Microsoft.Windows.WDK.x64 -Version 10.0.26100.6584 -OutputDirectory $pk -NonInteractive | Select-Object -Last 5
-          if ($LASTEXITCODE) { throw "nuget install failed" }
+          # The 10.0.26100 WDK NuGet has no build tasks for Visual Studio 18 (windows-latest), so use 10.0.28000.
+          # One pinned version of each package, so the props are imported once.
+          foreach ($id in "Microsoft.Windows.SDK.CPP", "Microsoft.Windows.SDK.CPP.x64", "Microsoft.Windows.WDK.x64") {
+            nuget install $id -Version 10.0.28000.2526 -OutputDirectory $pk -NonInteractive -DependencyVersion Ignore | Select-Object -Last 2
+            if ($LASTEXITCODE) { throw "nuget install $id failed" }
+          }
+          Get-ChildItem $pk -Recurse -Filter "Microsoft.DriverKit.Build.Tasks*.dll" | ForEach-Object { $_.FullName.Substring($pk.Length) }
           Get-ChildItem $pk -Directory | ForEach-Object { $_.Name; Get-ChildItem "$($_.FullName)\build" -Recurse -Include *.props,*.targets -ErrorAction SilentlyContinue | ForEach-Object { "   " + $_.FullName.Substring($pk.Length) } }
-          "WDK_ARGS=/p:NcomWdkPackages=$pk /p:WindowsTargetPlatformVersion=10.0.26100.0" | Out-File -Append $env:GITHUB_ENV
+          "WDK_ARGS=/p:NcomWdkPackages=$pk /p:WindowsTargetPlatformVersion=10.0.28000.0" | Out-File -Append $env:GITHUB_ENV
       - name: Build NcomArchKm.sys
         shell: pwsh
         run: |
