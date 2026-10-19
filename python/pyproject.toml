@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ncom-arch"
+version = "0.1.0"
+description = "NCOM Arch: window anatomy spec, native core bindings, IPC client and the gesture GIF renderer."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pillow>=10.1", "numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+ncom-arch = "ncom_arch.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,19 +1,13 @@
 # NCOM Arch README hero banner (1200x500): what it is, why it's better (bold, in the banner), and the gestures live on the right.
 # Usage: python3 hero.py <out.gif> [out.png]
 import sys, os, shutil, subprocess
-HERE=os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0,HERE)
-import scenes as SC
-from ncom_core import np, FONT, CW, CH
+HERE=os.path.dirname(os.path.abspath(__file__))
+from . import scenes as SC
+from .core import np, FONT, CW, CH, load_font, asset_path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 HW,HH=1200,500
-def fnt(sz,wt='Medium'):
-    f=ImageFont.truetype(FONT,int(sz))
-    try: f.set_variation_by_name(wt)
-    except Exception: pass
-    return f
-def find_logo():
-    for p in [os.path.join(HERE,'..','..','assets','brand','NCOM-Arch-logo.png'),'/home/user/tab/files/ncom-arch/repo/assets/brand/NCOM-Arch-logo.png']:
-        if os.path.exists(p): return p
+def fnt(sz,wt='Medium'): return load_font(sz,wt)
+def find_logo(): return asset_path('brand','NCOM-Arch-logo.png')
 # right-hand live demo: the real gesture scenes, shown in dark mode
 SCENE_LIST=[('arc_close',2.45),('pill_minimize',2.45),('pill_info',4.9),('dots_menu',3.5),('dots_snap',2.95),('resize',3.0)]
 PX0,PY0,PW=612,78,540; PH=int(PW*CH/CW)

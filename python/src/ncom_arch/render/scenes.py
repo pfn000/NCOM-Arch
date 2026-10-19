@@ -1,7 +1,7 @@
+"""The ten gesture scenes (moved from tools/gif-render/scenes.py). Run: python -m ncom_arch.render.scenes arc_close out.gif"""
 
 import sys, os
-sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
-from ncom_core import *
+from .core import *
 
 G0=(95,64,410,232)
 def geo_ctrl(g):

@@ -1,3 +1,4 @@
+"""Shared drawing kit for the NCOM Arch gesture GIFs (moved from tools/gif-render/ncom_core.py)."""
 
 import sys, os, math, subprocess, shutil
 import numpy as np
@@ -6,12 +7,24 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageChops
 S=2; W,H=600,375; FPS=int(os.environ.get('NCOM_FPS','20'))
 CW,CH=W*S,H*S
 HERE=os.path.dirname(os.path.abspath(__file__))
-FONT=os.environ.get('NCOM_FONT','/home/user/.local/share/fonts/Inter.ttf')  # Inter variable font
-def font(sz,wt='Medium'):
-    f=ImageFont.truetype(FONT,int(sz*S))
+def asset_path(*parts):
+    """Find a file under the repo's assets/ (NCOM_ASSETS, the repo checkout, or ./assets)."""
+    roots=[os.environ.get('NCOM_ASSETS',''),os.path.join(HERE,'..','..','..','..','assets'),os.path.join(os.getcwd(),'assets')]
+    for r in roots:
+        p=os.path.join(r,*parts)
+        if r and os.path.exists(p): return p
+    raise FileNotFoundError(os.path.join('assets',*parts)+' (set NCOM_ASSETS to the repo assets/ folder)')
+FONT=os.environ.get('NCOM_FONT',os.path.expanduser('~/.local/share/fonts/Inter.ttf'))  # Inter variable font
+def load_font(px,wt='Medium'):
+    """Inter at `px` pixels with the named weight; Pillow's built-in font when Inter isn't installed."""
+    try:
+        f=ImageFont.truetype(FONT,int(px))
+    except OSError:
+        return ImageFont.load_default(int(px))
     try: f.set_variation_by_name(wt)
     except Exception: pass
     return f
+def font(sz,wt='Medium'): return load_font(sz*S,wt)
 CTRL=(88,94,104); ACT=(23,26,32); TXT=(23,26,32); TXT2=(81,89,101)
 SKEL=(176,181,189)
 
@@ -290,7 +303,7 @@ SYMBOL=None
 def symbol():
     global SYMBOL
     if SYMBOL is None:
-        s=Image.open(os.environ.get('NCOM_SYMBOL',os.path.join(HERE,'..','..','assets','brand','NCOM-symbol.png'))).convert('RGBA')
+        s=Image.open(os.environ.get('NCOM_SYMBOL',asset_path('brand','NCOM-symbol.png'))).convert('RGBA')
         SYMBOL=s
     return SYMBOL
 
