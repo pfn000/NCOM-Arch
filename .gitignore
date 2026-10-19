@@ -1,0 +1,15 @@
+/target/
+Cargo.lock.bak
+**/bin/
+**/obj/
+*.user
+.vs/
+windows/driver/**/x64/
+windows/driver/**/Debug/
+windows/driver/**/Release/
+__pycache__/
+*.egg-info/
+/python/build/
+/python/dist/
+/dist/
+/out/
