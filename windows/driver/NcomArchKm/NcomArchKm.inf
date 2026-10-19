@@ -1,0 +1,68 @@
+;
+; NcomArchKm.inf - NCOM Arch kernel input broker (root-enumerated KMDF software device)
+;
+; Install on a TEST-SIGNING machine only (bcdedit /set testsigning on), as admin:
+;   pnputil /add-driver NcomArchKm.inf /install
+;   devcon install NcomArchKm.inf Root\NcomArchKm
+; Production install needs an EV-signed, Microsoft attestation-signed package.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ManufacturerName%
+CatalogFile = NcomArchKm.cat
+DriverVer   = ; filled in by stampinf
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+NcomArchKm.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%DeviceDesc% = NcomArchKm_Device, Root\NcomArchKm
+
+[NcomArchKm_Device.NT]
+CopyFiles = NcomArchKm_CopyFiles
+
+[NcomArchKm_CopyFiles]
+NcomArchKm.sys
+
+[NcomArchKm_Device.NT.HW]
+AddReg = NcomArchKm_Security_AddReg
+
+[NcomArchKm_Security_AddReg]
+; SYSTEM and Administrators: full access; interactive users: read/write (the shell runs as the user)
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+
+[NcomArchKm_Device.NT.Services]
+AddService = NcomArchKm, %SPSVCINST_ASSOCSERVICE%, NcomArchKm_Service_Inst
+
+[NcomArchKm_Service_Inst]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\NcomArchKm.sys
+
+[NcomArchKm_Device.NT.Wdf]
+KmdfService = NcomArchKm, NcomArchKm_wdfsect
+
+[NcomArchKm_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+SPSVCINST_ASSOCSERVICE = 0x00000002
+ManufacturerName       = "NCOM"
+DiskName               = "NCOM Arch Installation Disk"
+DeviceDesc             = "NCOM Arch Input Broker"
+ServiceDesc            = "NCOM Arch Input Broker Service"

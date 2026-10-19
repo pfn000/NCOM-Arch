@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ncomctl: talk to the NCOM Arch shell over the named pipe, or run the core in-process. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>ncomctl</AssemblyName>
+    <RootNamespace>NcomArch.Ctl</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../NcomArch.Interop/NcomArch.Interop.csproj" />
+  </ItemGroup>
+</Project>

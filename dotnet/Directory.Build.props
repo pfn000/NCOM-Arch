@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.1.0</Version>
+    <Company>NCOM</Company>
+    <Product>NCOM Arch</Product>
+    <!-- Where cargo puts ncom_arch.dll / libncom_arch.so (cargo build --release -p ncom-ffi). -->
+    <NcomNativeDir Condition="'$(NcomNativeDir)' == ''">$(MSBuildThisFileDirectory)../target/release</NcomNativeDir>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NcomArch.Interop.dll: the .NET class library that talks to the Rust core (P/Invoke into
+       ncom_arch.dll), to the shell service (named pipe) and to the KMDF driver (DeviceIoControl). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>NcomArch.Interop</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The native core travels with the library into every app/test that references it. -->
+    <None Include="$(NcomNativeDir)/ncom_arch*.dll;$(NcomNativeDir)/libncom_arch*.so;$(NcomNativeDir)/libncom_arch*.dylib"
+          CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" Visible="false" />
+  </ItemGroup>
+</Project>
