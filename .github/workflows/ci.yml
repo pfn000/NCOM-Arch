@@ -217,9 +217,12 @@ jobs:
           Copy-Item $sys.FullName, $inf.FullName $pkg
           if ($pdb) { Copy-Item $pdb.FullName $pkg }
           Select-String -Path "$pkg\NcomArchKm.inf" -Pattern "DriverVer|KmdfLibraryVersion|NTamd64"
-          $bin = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory | Where-Object Name -like "10.*" | Sort-Object Name -Descending | Select-Object -First 1
-          $signtool = Join-Path $bin.FullName "x64\signtool.exe"
-          $inf2cat = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter Inf2Cat.exe | Select-Object -First 1
+          # the WDK's tools: installed under Windows Kits, or inside the WDK NuGet packages
+          $roots = @("${env:ProgramFiles(x86)}\Windows Kits\10\bin", "$env:RUNNER_TEMP\wdk") | Where-Object { Test-Path $_ }
+          $signtool = (Get-ChildItem $roots -Recurse -Filter signtool.exe | Where-Object { $_.DirectoryName -match 'x64$' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          $inf2cat = Get-ChildItem $roots -Recurse -Filter Inf2Cat.exe | Select-Object -First 1
+          if (-not $signtool -or -not $inf2cat) { throw "signtool or Inf2Cat not found" }
+          "signtool: $signtool"; "Inf2Cat: $($inf2cat.FullName)"
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=NCOM Arch TEST SIGNING - NOT FOR PRODUCTION" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(1)
           Export-Certificate -Cert $cert -FilePath "$pkg\NcomArchKm-TEST.cer" | Out-Null
           & $signtool sign /v /fd sha256 /s My /sha1 $cert.Thumbprint "$pkg\NcomArchKm.sys"
