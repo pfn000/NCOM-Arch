@@ -1,0 +1,209 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust core + ncomd (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Toolchain
+        run: rustc --version && cargo --version
+      - name: Unit tests (ncom-core, ncom-ffi, ncomd)
+        run: cargo test --workspace
+      - name: Release build (libncom_arch.so + ncomd)
+        run: cargo build --release --workspace
+      - name: Smoke test ncomd over stdio
+        run: |
+          printf '%s\n' '{"cmd":"hello"}' '{"cmd":"open","title":"Notes"}' '{"cmd":"list"}' | target/release/ncomd | tee ncomd.out
+          test "$(grep -c '"ok":true' ncomd.out)" = 3
+      - name: Clippy (advisory)
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ncom-arch-linux-x64
+          path: |
+            target/release/libncom_arch.so
+            target/release/ncomd
+            crates/ncom-ffi/include/ncom_arch.h
+          if-no-files-found: error
+
+  python:
+    name: Python package (ubuntu)
+    needs: rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ncom-arch-linux-x64
+          path: native
+      - name: ffmpeg + Inter font
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-inter || sudo apt-get install -y -qq ffmpeg
+          f=$(find /usr/share/fonts -iname 'Inter*Variable*.tt*' 2>/dev/null | grep -vi italic | head -1)
+          echo "font: ${f:-none (Pillow default)}"
+          if [ -n "$f" ]; then echo "NCOM_FONT=$f" >> "$GITHUB_ENV"; fi
+      - name: Install
+        run: pip install -e "python[dev]" build
+      - name: Tests (incl. Python <-> Rust over the C ABI)
+        working-directory: python
+        env:
+          NCOM_ARCH_LIB: ${{ github.workspace }}/native/target/release/libncom_arch.so
+          NCOM_FPS: "8"
+        run: |
+          ls -la "$NCOM_ARCH_LIB"
+          pytest -v
+      - name: Build sdist + wheel
+        run: python -m build python --outdir dist
+      - name: Render samples with the packaged renderer
+        run: |
+          ncom-arch render arc_close dist/arc_close.gif
+          ncom-arch frame dots_menu 2.4 dist/dots_menu.png
+          ncom-arch spec > dist/anatomy.json
+          NCOM_ARCH_LIB=native/target/release/libncom_arch.so ncom-arch call '{"cmd":"hello"}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ncom-arch-python
+          path: dist/
+          if-no-files-found: error
+
+  windows:
+    name: Native DLL + .NET 8 (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Native DLL (Rust cdylib ncom_arch.dll) + ncomd.exe
+        run: cargo build --release --workspace
+      - name: Rust tests on Windows
+        run: cargo test --release --workspace
+      - name: DLL exports
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $exports = & $dumpbin /exports target\release\ncom_arch.dll | Select-String "ncom_"
+          $exports
+          foreach ($f in "ncom_version","ncom_abi_version","ncom_session_new","ncom_session_free","ncom_session_call","ncom_hit_test","ncom_string_free") {
+            if (-not ($exports -match "\b$f\b")) { throw "missing export $f" }
+          }
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: .NET tests (P/Invoke into ncom_arch.dll, named pipe, driver contract)
+        run: dotnet test dotnet/NcomArch.sln -c Release --logger "console;verbosity=normal"
+      - name: Publish shell service + ncomctl
+        shell: pwsh
+        run: |
+          dotnet publish dotnet/src/NcomArch.Shell -c Release -r win-x64 --self-contained false -o out/shell
+          dotnet publish dotnet/src/NcomArch.Ctl -c Release -r win-x64 --self-contained false -o out/ctl
+          Copy-Item target\release\ncom_arch.dll out\shell\ -Force
+          Copy-Item target\release\ncom_arch.dll out\ctl\ -Force
+      - name: Smoke test ncomctl in-process
+        run: out\ctl\ncomctl.exe --inproc demo
+      - name: Smoke test the shell service over \\.\pipe\ncom-arch
+        shell: pwsh
+        run: |
+          $p = Start-Process out\shell\NcomArch.Shell.exe -PassThru -NoNewWindow -RedirectStandardOutput shell.log -RedirectStandardError shell.err
+          Start-Sleep -Seconds 4
+          & out\ctl\ncomctl.exe demo
+          $code = $LASTEXITCODE
+          Stop-Process -Id $p.Id -Force
+          Get-Content shell.log
+          exit $code
+      - name: Stage artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out\native | Out-Null
+          Copy-Item target\release\ncom_arch.dll, target\release\ncom_arch.dll.lib, target\release\ncom_arch.pdb, target\release\ncomd.exe, crates\ncom-ffi\include\ncom_arch.h out\native\ -ErrorAction Continue
+          Get-ChildItem out -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ncom-arch-native-win-x64
+          path: out/native/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ncom-arch-dotnet-win-x64
+          path: |
+            out/shell/
+            out/ctl/
+          if-no-files-found: error
+
+  driver:
+    name: KMDF driver .sys (windows-latest, test-signed)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Locate the WDK
+        shell: pwsh
+        run: |
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          Get-ChildItem "$kits\Include" -Directory -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name)  km=$(Test-Path "$($_.FullName)\km\ntddk.h")" }
+          "KMDF: " + ((Get-ChildItem "$kits\Include\wdf\kmdf" -Directory -ErrorAction SilentlyContinue).Name -join ", ")
+          $ver = (Get-ChildItem "$kits\Include" -Directory | Where-Object { Test-Path "$($_.FullName)\km\ntddk.h" } | Sort-Object Name -Descending | Select-Object -First 1).Name
+          if (-not $ver) { throw "No WDK kernel headers on this runner" }
+          "WDK_VERSION=$ver" | Out-File -Append $env:GITHUB_ENV
+          "Using WDK $ver"
+      - name: Build NcomArchKm.sys
+        run: msbuild windows\driver\NcomArchKm\NcomArchKm.vcxproj /p:Configuration=Release /p:Platform=x64 /p:WindowsTargetPlatformVersion=${{ env.WDK_VERSION }} /v:minimal /nologo
+      - name: Package + test-sign (self-signed, NOT for production)
+        shell: pwsh
+        run: |
+          $proj = "windows\driver\NcomArchKm"
+          $pkg = "out\driver"
+          New-Item -ItemType Directory -Force $pkg | Out-Null
+          $sys = Get-ChildItem "$proj\x64\Release" -Recurse -Filter NcomArchKm.sys | Select-Object -First 1
+          $inf = Get-ChildItem "$proj\x64\Release" -Recurse -Filter NcomArchKm.inf | Select-Object -First 1
+          $pdb = Get-ChildItem "$proj\x64\Release" -Recurse -Filter NcomArchKm.pdb | Select-Object -First 1
+          if (-not $sys -or -not $inf) { Get-ChildItem "$proj\x64" -Recurse | Select-Object FullName; throw "build output missing" }
+          Copy-Item $sys.FullName, $inf.FullName $pkg
+          if ($pdb) { Copy-Item $pdb.FullName $pkg }
+          Select-String -Path "$pkg\NcomArchKm.inf" -Pattern "DriverVer|KmdfLibraryVersion|NTamd64"
+          $bin = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory | Where-Object Name -like "10.*" | Sort-Object Name -Descending | Select-Object -First 1
+          $signtool = Join-Path $bin.FullName "x64\signtool.exe"
+          $inf2cat = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter Inf2Cat.exe | Select-Object -First 1
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=NCOM Arch TEST SIGNING - NOT FOR PRODUCTION" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(1)
+          Export-Certificate -Cert $cert -FilePath "$pkg\NcomArchKm-TEST.cer" | Out-Null
+          & $signtool sign /v /fd sha256 /s My /sha1 $cert.Thumbprint "$pkg\NcomArchKm.sys"
+          if ($LASTEXITCODE) { throw "signtool (.sys) failed" }
+          & $inf2cat.FullName /driver:"$((Resolve-Path $pkg).Path)" /os:10_X64 /uselocaltime
+          if ($LASTEXITCODE) { throw "Inf2Cat failed" }
+          & $signtool sign /v /fd sha256 /s My /sha1 $cert.Thumbprint "$pkg\NcomArchKm.cat"
+          if ($LASTEXITCODE) { throw "signtool (.cat) failed" }
+          @"
+          NcomArchKm - TEST-SIGNED build from CI ($env:GITHUB_SHA)
+          Signed with a throwaway self-signed certificate (NcomArchKm-TEST.cer).
+          Loads ONLY on a machine with test signing on: bcdedit /set testsigning on
+          Production needs an EV code-signing certificate + Microsoft attestation (Partner Center) signing.
+          "@ | Out-File "$pkg\TEST-SIGNED-README.txt" -Encoding utf8
+          Get-AuthenticodeSignature "$pkg\NcomArchKm.sys" | Format-List SignerCertificate, Status
+          Get-ChildItem $pkg | Select-Object Name, Length | Format-Table -AutoSize
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ncom-arch-driver-x64-testsigned
+          path: out/driver/
+          if-no-files-found: error
