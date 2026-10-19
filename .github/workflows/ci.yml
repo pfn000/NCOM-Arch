@@ -153,23 +153,46 @@ jobs:
           if-no-files-found: error
 
   driver:
-    name: KMDF driver .sys (windows-latest, test-signed)
-    runs-on: windows-latest
+    name: KMDF driver .sys (${{ matrix.os }}, WDK ${{ matrix.wdk }}, test-signed)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # windows-latest ships Visual Studio without the WDK: take the WDK from NuGet.
+          - os: windows-latest
+            wdk: nuget
+          # windows-2022 ships Visual Studio 2022 with the WDK installed.
+          - os: windows-2022
+            wdk: installed
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
-      - name: Locate the WDK
+      - name: Locate the installed WDK
+        if: matrix.wdk == 'installed'
         shell: pwsh
         run: |
           $kits = "${env:ProgramFiles(x86)}\Windows Kits\10"
           Get-ChildItem "$kits\Include" -Directory -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name)  km=$(Test-Path "$($_.FullName)\km\ntddk.h")" }
-          "KMDF: " + ((Get-ChildItem "$kits\Include\wdf\kmdf" -Directory -ErrorAction SilentlyContinue).Name -join ", ")
           $ver = (Get-ChildItem "$kits\Include" -Directory | Where-Object { Test-Path "$($_.FullName)\km\ntddk.h" } | Sort-Object Name -Descending | Select-Object -First 1).Name
           if (-not $ver) { throw "No WDK kernel headers on this runner" }
-          "WDK_VERSION=$ver" | Out-File -Append $env:GITHUB_ENV
-          "Using WDK $ver"
+          "WDK_ARGS=/p:WindowsTargetPlatformVersion=$ver" | Out-File -Append $env:GITHUB_ENV
+          "Using installed WDK $ver"
+      - name: WDK from NuGet
+        if: matrix.wdk == 'nuget'
+        shell: pwsh
+        run: |
+          $pk = "$env:RUNNER_TEMP\wdk"
+          nuget install Microsoft.Windows.WDK.x64 -Version 10.0.26100.6584 -OutputDirectory $pk -NonInteractive | Select-Object -Last 5
+          if ($LASTEXITCODE) { throw "nuget install failed" }
+          Get-ChildItem $pk -Directory | ForEach-Object { $_.Name; Get-ChildItem "$($_.FullName)\build" -Recurse -Include *.props,*.targets -ErrorAction SilentlyContinue | ForEach-Object { "   " + $_.FullName.Substring($pk.Length) } }
+          "WDK_ARGS=/p:NcomWdkPackages=$pk /p:WindowsTargetPlatformVersion=10.0.26100.0" | Out-File -Append $env:GITHUB_ENV
       - name: Build NcomArchKm.sys
-        run: msbuild windows\driver\NcomArchKm\NcomArchKm.vcxproj /p:Configuration=Release /p:Platform=x64 /p:WindowsTargetPlatformVersion=${{ env.WDK_VERSION }} /v:minimal /nologo
+        shell: pwsh
+        run: |
+          $mb = @("windows\driver\NcomArchKm\NcomArchKm.vcxproj", "/p:Configuration=Release", "/p:Platform=x64", "/v:minimal", "/nologo") + ($env:WDK_ARGS -split ' ')
+          & msbuild @mb
+          if ($LASTEXITCODE) { throw "msbuild failed ($LASTEXITCODE)" }
       - name: Package + test-sign (self-signed, NOT for production)
         shell: pwsh
         run: |
@@ -204,6 +227,6 @@ jobs:
           Get-ChildItem $pkg | Select-Object Name, Length | Format-Table -AutoSize
       - uses: actions/upload-artifact@v4
         with:
-          name: ncom-arch-driver-x64-testsigned
+          name: ncom-arch-driver-x64-testsigned-${{ matrix.os }}
           path: out/driver/
           if-no-files-found: error

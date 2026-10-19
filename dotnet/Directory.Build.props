@@ -6,7 +6,7 @@
     <Version>0.1.0</Version>
     <Company>NCOM</Company>
     <Product>NCOM Arch</Product>
-    <!-- Where cargo puts ncom_arch.dll / libncom_arch.so (cargo build --release -p ncom-ffi). -->
+    <!-- Where cargo puts ncom_arch.dll / libncom_arch.so: run a release cargo build of ncom-ffi first. -->
     <NcomNativeDir Condition="'$(NcomNativeDir)' == ''">$(MSBuildThisFileDirectory)../target/release</NcomNativeDir>
   </PropertyGroup>
 </Project>
