@@ -195,7 +195,9 @@ jobs:
           $tools = Get-ChildItem $pk -Recurse -Include stampinf.exe, inf2cat.exe, infverif.exe, signtool.exe | Where-Object { $_.DirectoryName -notmatch '\\(x86|arm64|arm)$' }
           $tools | ForEach-Object { $_.FullName.Substring($pk.Length) }
           $tools | ForEach-Object { $_.DirectoryName } | Sort-Object -Unique | Out-File -Append $env:GITHUB_PATH
-          "WDK_ARGS=/p:NcomWdkPackages=$pk /p:WindowsTargetPlatformVersion=10.0.28000.0" | Out-File -Append $env:GITHUB_ENV
+          # ApiValidator from the NuGet WDK is an x86 tool that fails to start here; the Universal API check is a
+          # compliance pass, not part of building the .sys, and InfVerif runs on its own below.
+          "WDK_ARGS=/p:NcomWdkPackages=$pk /p:WindowsTargetPlatformVersion=10.0.28000.0 /p:ApiValidator_Enable=false" | Out-File -Append $env:GITHUB_ENV
       - name: Build NcomArchKm.sys
         shell: pwsh
         run: |
